@@ -1,5 +1,5 @@
 from dotenv import load_dotenv
-from flask import Flask
+from flask import Flask, request
 from flask_httpauth import HTTPBasicAuth
 from werkzeug.security import generate_password_hash, check_password_hash
 import redis
@@ -39,10 +39,10 @@ class RedisProxy:
     def __init__(self, clients: Redis):
         self.clients = clients
 
-    def sadd(self, db: int, name: str, *values):
+    def sadd(self, db: str, name: str, *values):
         return {'SADD': self.clients.conn[int(db)].sadd(name, *values)}
 
-    def zrange(self, db: int, name: str, start: str, end: str, byscore=''):
+    def zrange(self, db: str, name: str, start: str, end: str, byscore=''):
         return {'ZRANGE': self.clients.conn[int(db)].zrange(name, start, end, byscore=True if byscore == 'BYSCORE' else False)}
 
 
@@ -65,10 +65,10 @@ def verify_password(username, password):
         return username
 
 
-@app.route('/<path:subpath>', methods=['POST'])
+@app.route('/', methods=['POST'])
 @auth.login_required
-def triage(subpath):
-    arguments = subpath.split('/')
+def triage():
+    arguments = request.data.decode('ascii').split('/')
 
     try:
         if int(arguments[0]) not in range(16):
