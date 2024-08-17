@@ -37,7 +37,11 @@ class Redis(metaclass=Singleton):
 
 class RedisProxyPipeline:
     def __init__(self, clients: Redis, db: str):
-        self.pipe = clients.conn[int(db)].pipeline()
+        self.client = clients.conn[int(db)]
+        self.pipe = self.client.pipeline()
+
+    def info(self):
+        return self.client.info()
 
     def sadd(self, arguments):
         return self.pipe.sadd(arguments['name'], *arguments['values'])
@@ -70,7 +74,10 @@ def verify_password(username, password):
 @app.route('/', methods=['POST'])
 @auth.login_required
 def pipeline():
-    req = request.get_json()
+    try:
+        req = request.get_json()
+    except Exception as e:
+        return RedisProxyPipeline(clients, '0').info()
 
     try:
         if int(req['db']) not in range(16):
