@@ -35,15 +35,18 @@ class Redis(metaclass=Singleton):
         self._conn = {db: redis.Redis(connection_pool=self.pool[db]) for db in range(16)}
 
 
-class RedisProxy:
-    def __init__(self, clients: Redis):
-        self.clients = clients
+class RedisProxyPipeline:
+    def __init__(self, clients: Redis, db: str):
+        self.pipe = clients.conn[int(db)].pipeline()
 
-    def sadd(self, db: str, name: str, *values):
-        return {'SADD': self.clients.conn[int(db)].sadd(name, *values)}
+    def sadd(self, arguments):
+        return self.pipe.sadd(arguments['name'], *arguments['values'])
 
-    def zrange(self, db: str, name: str, start: str, end: str, byscore=''):
-        return {'ZRANGE': self.clients.conn[int(db)].zrange(name, start, end, byscore=True if byscore == 'BYSCORE' else False)}
+    def zrange(self, arguments):
+        return self.pipe.zrange(arguments['name'], arguments['start'], arguments['end'], byscore=arguments.get('byscore', False))
+
+    def execute(self):
+        return self.pipe.execute()
 
 
 load_dotenv()
@@ -51,7 +54,6 @@ load_dotenv()
 app = Flask(__name__)
 
 clients = Redis()
-proxy = RedisProxy(clients)
 users = {
     os.environ['AUTH_USERNAME']: generate_password_hash(os.environ['AUTH_PASSWD'])
 }
@@ -67,20 +69,22 @@ def verify_password(username, password):
 
 @app.route('/', methods=['POST'])
 @auth.login_required
-def triage():
-    arguments = request.data.decode('ascii').split('/')
+def pipeline():
+    req = request.get_json()
 
     try:
-        if int(arguments[0]) not in range(16):
+        if int(req['db']) not in range(16):
             return {}, 400
-        if arguments[1] == 'SADD':
-            return proxy.sadd(arguments[0], *arguments[2:])
-        if arguments[1] == 'ZRANGE':
-            return proxy.zrange(arguments[0], *arguments[2:])
+
+        proxy = RedisProxyPipeline(clients, req['db'])
+
+        for c in req['cmds']:
+            if c['cmd'] in ['sadd', 'zrange']:
+                getattr(proxy, c['cmd'])(c['args'])
+
+        return proxy.execute()
     except Exception as e:
         return {"message": str(e)}, 400
-
-    return {}, 404
 
 
 if __name__ == '__main__':
