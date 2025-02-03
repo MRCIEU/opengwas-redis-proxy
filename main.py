@@ -1,3 +1,5 @@
+import logging
+
 from dotenv import load_dotenv
 from flask import Flask, request
 from flask_httpauth import HTTPBasicAuth
@@ -5,6 +7,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import redis
 
 import os
+
+
+logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=os.environ['LOGGING_LEVEL'])
+logging.getLogger('elasticsearch').setLevel(logging.WARNING)
 
 
 # Use singleton for Redis connection pool
@@ -77,6 +83,7 @@ def pipeline():
     try:
         req = request.get_json()
     except Exception as e:
+        logging.error(str(e))
         return RedisProxyPipeline(clients, '0').info()
 
     try:
@@ -91,6 +98,7 @@ def pipeline():
 
         return proxy.execute()
     except Exception as e:
+        logging.error(str(e))
         return {"message": str(e)}, 400
 
 
