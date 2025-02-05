@@ -55,6 +55,9 @@ class RedisProxyPipeline:
     def zrange(self, arguments):
         return self.pipe.zrange(arguments['name'], arguments['start'], arguments['end'], byscore=arguments.get('byscore', False))
 
+    def hgetall(self, arguments):
+        return self.pipe.hgetall(arguments['name'])
+
     def execute(self):
         return self.pipe.execute()
 
@@ -93,7 +96,7 @@ def pipeline():
         proxy = RedisProxyPipeline(clients, req['db'])
 
         for c in req['cmds']:
-            if c['cmd'] in ['sadd', 'zrange']:
+            if c['cmd'] in ['sadd', 'zrange', 'hgetall']:
                 getattr(proxy, c['cmd'])(c['args'])
 
         return proxy.execute()
