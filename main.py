@@ -1,5 +1,6 @@
 import logging
 
+import jsonpickle
 from dotenv import load_dotenv
 from flask import Flask, request
 from flask_httpauth import HTTPBasicAuth
@@ -8,6 +9,8 @@ import redis
 
 import os
 
+# For development:
+# load_dotenv()
 
 logging.basicConfig(format='%(asctime)s %(levelname)s: %(message)s', level=os.environ['LOGGING_LEVEL'])
 logging.getLogger('elasticsearch').setLevel(logging.WARNING)
@@ -30,6 +33,7 @@ class Singleton(type):
 class Redis(metaclass=Singleton):
     def __init__(self):
         self.pool = {db: redis.ConnectionPool(host=os.environ['HOST'], port=os.environ['PORT'], password=os.environ['PASS'], db=db, decode_responses=True) for db in range(16)}
+        self.pool_raw = {db: redis.ConnectionPool(host=os.environ['HOST'], port=os.environ['PORT'], password=os.environ['PASS'], db=db) for db in range(16)}
 
     @property
     def conn(self):
@@ -40,10 +44,19 @@ class Redis(metaclass=Singleton):
     def get_connection(self):
         self._conn = {db: redis.Redis(connection_pool=self.pool[db]) for db in range(16)}
 
+    @property
+    def conn_raw(self):
+        if not hasattr(self, '_conn_raw'):
+            self.get_connection_raw()
+        return self._conn_raw
+
+    def get_connection_raw(self):
+        self._conn_raw = {db: redis.Redis(connection_pool=self.pool_raw[db]) for db in range(16)}
+
 
 class RedisProxyPipeline:
-    def __init__(self, clients: Redis, db: str):
-        self.client = clients.conn[int(db)]
+    def __init__(self, clients: Redis, db: str, get_raw_response=False):
+        self.client = clients.conn[int(db)] if not get_raw_response else clients.conn_raw[int(db)]
         self.pipe = self.client.pipeline()
 
     def info(self):
@@ -93,13 +106,19 @@ def pipeline():
         if int(req['db']) not in range(16):
             return {}, 400
 
-        proxy = RedisProxyPipeline(clients, req['db'])
+        proxy = RedisProxyPipeline(clients, req['db'], req.get('get_raw_response', False))
 
         for c in req['cmds']:
             if c['cmd'] in ['sadd', 'zrange', 'hgetall']:
                 getattr(proxy, c['cmd'])(c['args'])
 
-        return proxy.execute()
+        results = proxy.execute()
+
+        if req.get('get_raw_response', False):
+            results = [jsonpickle.encode(r) for r in results]
+
+        return results
+
     except Exception as e:
         logging.error(str(e))
         return {"message": str(e)}, 400
