@@ -71,6 +71,9 @@ class RedisProxyPipeline:
     def hgetall(self, arguments):
         return self.pipe.hgetall(arguments['name'])
 
+    def hmget(self, arguments):
+        return self.pipe.hmget(arguments['name'], arguments['fields'])
+
     def execute(self):
         return self.pipe.execute()
 
@@ -109,7 +112,7 @@ def pipeline():
         proxy = RedisProxyPipeline(clients, req['db'], req.get('get_raw_response', False))
 
         for c in req['cmds']:
-            if c['cmd'] in ['sadd', 'zrange', 'hgetall']:
+            if c['cmd'] in ['sadd', 'zrange', 'hgetall', 'hmget']:
                 getattr(proxy, c['cmd'])(c['args'])
 
         results = proxy.execute()
